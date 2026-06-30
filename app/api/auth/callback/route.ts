@@ -14,6 +14,7 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const error = url.searchParams.get("error");
+  const state = url.searchParams.get("state");
 
   if (error) {
     return NextResponse.json({ error }, { status: 400 });
@@ -21,6 +22,18 @@ export async function GET(req: NextRequest) {
   if (!code) {
     return NextResponse.json(
       { error: "code がありません。" },
+      { status: 400 }
+    );
+  }
+
+  // CSRF対策: /api/auth/login が発行した state Cookie と一致するか検証。
+  const cookieState = req.cookies.get("threads_oauth_state")?.value;
+  if (!cookieState || !state || cookieState !== state) {
+    return NextResponse.json(
+      {
+        error:
+          "state が一致しません（CSRF保護）。/api/auth/login からやり直してください。",
+      },
       { status: 400 }
     );
   }
@@ -65,12 +78,15 @@ export async function GET(req: NextRequest) {
 
     if (upErr) throw upErr;
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       ok: true,
       user_id: short.user_id,
       expires_at: expiresAt,
       msg: "threads_token を保存しました。これで自動投稿が可能です。",
     });
+    // 使い終わった state Cookie を破棄。
+    res.cookies.set("threads_oauth_state", "", { path: "/", maxAge: 0 });
+    return res;
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
